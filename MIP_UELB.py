@@ -1,5 +1,4 @@
-#MIP(UELB problem)
-# coding: UTF-8
+#元の厳密解を求めるプログラムファイル　清水さん使用ver
 
 # import pulp
 # from pulp import *

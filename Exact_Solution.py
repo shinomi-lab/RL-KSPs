@@ -1,3 +1,4 @@
+#LP-ksps_envで使う厳密解を求めるためのプログラムファイル
 from mip import *
 import time
 import csv

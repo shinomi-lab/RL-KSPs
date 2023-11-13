@@ -1,4 +1,4 @@
-#"shufflelunch.py"から学習構築構築
+#"shufflelunch.py"から学習構築構築したmainのプログラムファイル
 
 #state:経路の組み合わせ
 #action:経路の組み替え
