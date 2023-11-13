@@ -36,6 +36,7 @@ class Solve_exact_solution():
             self.f = Flow(self.G,self.commodity_count,s,t,demand)
             self.G.all_flows.append(self.f)
             self.commodity_count +=1
+        
 
     def solve_exact_solution_to_env(self):
 
@@ -74,4 +75,4 @@ class Solve_exact_solution():
         with open('exactsolution.csv', 'a', newline='') as f:
             out = csv.writer(f)
             out.writerow([self.episode, UELB_kakai.objective_value, elapsed_time_kakai]) 
-        return UELB_kakai.objective_value
+        return UELB_kakai.objective_value,elapsed_time_kakai

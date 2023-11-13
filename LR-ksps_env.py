@@ -20,18 +20,23 @@ from Exact_Solution import Solve_exact_solution
 class min_maxload_KSPs_Env(gym.core.Env): # クラスの定義
     #gymで強化学習環境を作る場合はstep,reset,render,close,seedメソッドを実装
 
-    def __init__(self, K, n_action, obs_low, obs_high, max_step, node_l, node_h, random_p, range_commodity_l, range_commodity_h):
+    def __init__(self, K, n_action, obs_low, obs_high, max_step, node_l, node_h, random_p, range_commodity_l, range_commodity_h, sample_size):
         self.K = K # kspsの本数
         self.random_p = random_p
         self.retsu = random.randint(node_l, node_h)
         self.commodity = random.randint(range_commodity_l, range_commodity_h)
+        self.sample_size = sample_size
 
         # self.G, self.pos, self.capacity_list, self.edge_list, self.edges_notindex =  self.gridgraph(self.retsu,self.retsu) # gridgraph
         self.G, self.pos, self.capacity_list, self.edge_list, self.edges_notindex =  self.randomgraph(self.retsu, self.random_p) # randomgraph
-
+        # print("G")
         self.commodity_dictlist, self.commodity_list = self.generate_commodity(self.commodity) # 品種作成
-        self.allcommodity_ksps, self.allcommodity_notfstksps = self.search_ksps(self.K, self.G, self.commodity, self.commodity_list) # kspsの探索
+        # print("commodity")
+        self.random_ksps, self.allcommodity_ksps, self.allcommodity_notfstksps = self.search_ksps(self.K, self.G, self.commodity, self.commodity_list) # kspsの探索
+        # print("ksp")
+        # self.combination = self.searh_combination(self.random_ksps) # 抽出バージョン
         self.combination = self.searh_combination(self.allcommodity_ksps)
+        # print("combi")
         self.grouping = self.combination[0] #初期パターン（最短経路の組み合わせ）
 
         self.n_action = n_action # 行動の数
@@ -66,7 +71,6 @@ class min_maxload_KSPs_Env(gym.core.Env): # クラスの定義
             for p in range(len(self.allcommodity_ksps[c])):
                 path = self.allcommodity_ksps[c][p]
                 pair_list.append([c, path])
-
         # print("pair_list",pair_list)
         return pair_list
 
@@ -77,7 +81,8 @@ class min_maxload_KSPs_Env(gym.core.Env): # クラスの定義
         # self.G, self.pos, self.capacity_list, self.edge_list, self.edges_notindex = self.gridgraph(self.retsu,self.retsu) # gridgraph作成
         self.G, self.pos, self.capacity_list, self.edge_list, self.edges_notindex =  self.randomgraph(self.retsu, self.random_p) # randomgraph
         self.commodity_dictlist, self.commodity_list = self.generate_commodity(self.commodity) # 品種作成
-        self.allcommodity_ksps, self.allcommodity_notfstksps = self.search_ksps(self.K, self.G, self.commodity, self.commodity_list) # kspsの探索
+        self.random_ksps, self.allcommodity_ksps, self.allcommodity_notfstksps = self.search_ksps(self.K, self.G, self.commodity, self.commodity_list) # kspsの探索
+        # self.combination = self.searh_combination(self.random_ksps) # 抽出バージョン
         self.combination = self.searh_combination(self.allcommodity_ksps) # 組み合わせを求める
         self.grouping = self.combination[0] # 初期stateは最短経路の組み合わせ
 
@@ -198,11 +203,13 @@ class min_maxload_KSPs_Env(gym.core.Env): # クラスの定義
         # with open('/Users/takahashihimeno/Documents/result/variety.csv','w') as f:
         #     writer=csv.writer(f,lineterminator='\n')
         #     writer.writerows(variety)
+        # print("finish commodity")
 
         return commodity_dictlist,commodity_list
 
     def search_ksps(self, K, G, commodity,commodity_list): # 各品種のkspsを求める
         allcommodity_ksps = []
+        random_ksps = []
         allcommodity_notfstksps = []
         for i in range(commodity):
             X = nx.shortest_simple_paths(G, commodity_list[i][0], commodity_list[i][1]) # Yen's algorithm
@@ -211,20 +218,33 @@ class min_maxload_KSPs_Env(gym.core.Env): # クラスの定義
                 ksps_list.append(path)
                 if counter == K - 1: 
                     break
+            # 経路のサンプリング
+            random_sample = random.sample(ksps_list, self.sample_size)
+            random_ksps.append(random_sample)
             allcommodity_ksps.append(ksps_list)
+
             subksps_list = copy.deepcopy(ksps_list)
             subksps_list.pop(0)
             allcommodity_notfstksps.append(subksps_list)
-        return allcommodity_ksps,allcommodity_notfstksps
+        return random_ksps,allcommodity_ksps,allcommodity_notfstksps
 
-    def searh_combination(self, allcommodity_ksps): # 組み合わせを求める
-        # 初期状態を最短経路にしているけど、全通り求めることで設定によって変更できる
-        combination = []
-        q = [*product(*allcommodity_ksps)] # 全通りの組み合わせ
-        for conbi in q:
-            conbi = list(conbi)
-            # print(conbi)
-            combination.append(conbi)
+    # def searh_combination(self, allcommodity_ksps): # 全通りの組み合わせを求める
+    #     # 初期状態を最短経路にしているけど、全通り求めることで設定によって変更できる
+    #     combination = []
+    #     q = [*product(*allcommodity_ksps)] # 全通りの組み合わせ
+    #     for conbi in q:
+    #         conbi = list(conbi)
+    #         # print(conbi)
+    #         combination.append(conbi)
+    #     return combination   
+    def searh_combination(self, allcommodity_ksps): # 最短の組み合わせを求める
+        comb = []
+        L = len(allcommodity_ksps)
+        for i in range(L):
+            # print(allcommodity_ksps[i][0])
+            comb.append(allcommodity_ksps[i][0])
+        combination = [comb]
+        # print(combination)
         return combination   
     #####
 
@@ -343,7 +363,7 @@ class min_maxload_KSPs_Env(gym.core.Env): # クラスの定義
 # --------------------------------------------------------------------------------------- 
 def test_environment():
     # 環境を初期化
-    env = min_maxload_KSPs_Env(K, n_action, obs_low, obs_high, max_step, node_l, node_h, random_p, range_commodity_l, range_commodity_h)
+    env = min_maxload_KSPs_Env(K, n_action, obs_low, obs_high, max_step, node_l, node_h, random_p, range_commodity_l, range_commodity_h, sample_size)
     print("set env")
     # 環境をリセットして初期状態を取得
     # initial_observation, initial_reward, number_of_nodes, commodity_list = env.reset()
@@ -411,17 +431,18 @@ n_action = 10# candidateの個数
 obs_low = -10 # 観測変数のスペース　下限
 obs_high = 10 # 観測変数のスペース　上限
 node_l = 20 # gridgraphの列数範囲
-node_h = 40 # gridgraphの列数範囲
+node_h = 100 # gridgraphの列数範囲
 random_p = 0.15 # randomgraphの密度
-range_commodity_l = 5 # 品種の範囲
-range_commodity_h = 5 # 品種の範囲
+range_commodity_l = 10 # 品種の範囲
+range_commodity_h = 10 # 品種の範囲
+sample_size = 5  # 抽出する要素の数
 
-ln_episodes =  200 # 訓練エピソード数
-max_step =  200 # 訓練時の最大step数
+ln_episodes =  500 # 訓練エピソード数
+max_step =  50 # 訓練時の最大step数
 nb_episodes = 10 # テストエピソード数
-nb_max_episode_steps = 20 # テスト時のstep数
+nb_max_episode_steps = 50 # テスト時のstep数
 print("start set env")
-env = min_maxload_KSPs_Env(K, n_action, obs_low, obs_high, max_step, node_l, node_h, random_p, range_commodity_l, range_commodity_h) # 実行
+env = min_maxload_KSPs_Env(K, n_action, obs_low, obs_high, max_step, node_l, node_h, random_p, range_commodity_l, range_commodity_h, sample_size) # 実行
 print("finish set env")
 # print("finish")
 # print(env.observation)
@@ -454,6 +475,11 @@ dqn.compile(Adam(lr=1e-3), metrics=['mae']) # エージェントをコンパイ�
 # 訓練
 history = dqn.fit(env, nb_steps=ln_episodes, visualize=True, verbose=2, nb_max_episode_steps=max_step)
 ## --------------------------------------------------------------------------------------- 
+#　厳密解のファイルを用意
+with open('exactsolution.csv','w') as f:
+    out = csv.writer(f)
+with open('approximatesolution.csv','w') as f:
+    out = csv.writer(f)
 
 import rl.callbacks
 # カスタムコールバックを作成
@@ -463,7 +489,9 @@ class CustomEpisodeLogger(rl.callbacks.Callback):
         self.start_time = 0 # エピソードごとの処理時間
         self.rewards = {}  # エピソードごとの報酬を保存する辞書
         self.objective_values = []
+        self.objective_time = []
         self.apploximatesolutions = []
+        self.apploximatetime = []
 
     def on_episode_begin(self, episode, logs):
         self.episode = episode
@@ -482,8 +510,9 @@ class CustomEpisodeLogger(rl.callbacks.Callback):
         elapsed_time = end_time - self.start_time # 処理時間計算
         apploximate_solution = self.rewards[self.episode][-1]*(-1)
         self.apploximatesolutions.append(apploximate_solution)
+        self.apploximatetime.append(elapsed_time)
         steps = logs['nb_steps']
-        print(f"Episode {self.episode}: apploximate_solution: {apploximate_solution}, steps: {steps}, time: {elapsed_time:.2f} seconds") # 独自のログ出力
+        print(f"Episode {self.episode}: approximate_solution: {apploximate_solution}, steps: {steps}, time: {elapsed_time:.2f} seconds") # 独自のログ出力
 
         # ファイルにデータを書き込む
         with open('commodity_data.csv','w') as f:
@@ -492,34 +521,31 @@ class CustomEpisodeLogger(rl.callbacks.Callback):
         nx.write_gml(self.env.G, "graph.gml") # グラフの保存
 
         E = Solve_exact_solution(env.retsu,self.episode) # Exact_Solution.pyの厳密解クラスの呼び出し
-        objective_value = E.solve_exact_solution_to_env() # 厳密解を計算
+        objective_value,objective_time = E.solve_exact_solution_to_env() # 厳密解を計算
         self.objective_values.append(objective_value) # 厳密解情報を格納
+        self.objective_time.append(objective_time)
+
+        with open('approximatesolution.csv', 'a', newline='') as f:
+            out = csv.writer(f)
+            out.writerow([self.episode, apploximate_solution, elapsed_time]) 
         
 episode_logger = CustomEpisodeLogger()
 # テスト時にカスタムコールバックを使用してエピソードごとの処理時間を取得
 dqn.test(env, nb_episodes=nb_episodes, nb_max_episode_steps=nb_max_episode_steps, visualize=False, callbacks=[episode_logger], verbose=0)
+# print(env.allcommodity_ksps)
+# print(env.random_ksps)
+# print(len(env.combination))
 env.close()
 ## --------------------------------------------------------------------------------------- 
 
-# 結果を表示
+# stepごとの平均reward推移
 mean_reward_list=[]
 for i in range(len(episode_logger.rewards[0])):
   heikin=0
 #   print(episode_logger.rewards[0])
   for j in range(len(episode_logger.rewards)):
     heikin=heikin+episode_logger.rewards[j][i]
-    # print(episode_logger.rewards[j][i])
-  # print(heikin)
-  # print(i)
-  mean_reward_list.append(heikin/nb_episodes)
-#   print(mean_reward_list)
-
-import matplotlib.pyplot as plt
-
-# random_sampling = [env.get_reward(env.get_random_grouping()) for _ in list(range(10000))]
-# print(random_sampling)
-
-# stepごとの平均reward推移
+  mean_reward_list.append((heikin/nb_episodes)*-1)
 x = list(range(1, nb_max_episode_steps + 1))
 plt.plot(x, mean_reward_list, label='N={}'.format(nb_episodes))
 plt.xlabel('step', fontsize=18)
@@ -532,10 +558,7 @@ plt.show()
 # 厳密解と近似解の比較
 y1 = episode_logger.objective_values # 厳密解
 y2 = episode_logger.apploximatesolutions # 近似解
-print(y1)
-print(y2)
 x = np.arange(len(y1)) # x軸の設定
-print(x)
 valid_indices1 = [i for i, value in enumerate(y1) if value is not None]
 valid_indices2 = [i for i, value in enumerate(y2) if value is not None]
 # 有効なデータのみを抽出
@@ -545,17 +568,53 @@ valid_x1 = [x[i] for i in valid_indices1]
 valid_x2 = [x[i] for i in valid_indices2]
 # プロット
 plt.plot(valid_x1, valid_data1, marker='o', linestyle='-', label='exactsolution')
-plt.plot(valid_x2, valid_data2, marker='o', linestyle='-', label='apploximatesolution')
-# plt.plot(x, y1, label='厳密解')
-# plt.plot(x, y2, label='近似解')
+plt.plot(valid_x2, valid_data2, marker='o', linestyle='-', label='approximatesolution')
 # ラベルや凡例の追加
 plt.xlabel('episode')
 plt.ylabel('value')
 # plt.title('二つのリストのプロット')
 plt.legend() # 凡例を表示
-
 # プロットの表示
 plt.show()
 
-# for i in range(episode_logger.episode):
-#     print(i,episode_logger.objective_values[i],episode_logger.apploximatesolutions[i])
+#近似率の算出
+apploximate_rate = []
+for i in range(nb_episodes):
+    if y1[i] is None:
+        apploximaterate = 110
+    elif y2[i] is None:
+        apploximaterate = 0
+    else:
+        apploximaterate = y1[i]/y2[i]*100
+    apploximate_rate.append(apploximaterate)
+x = list(range(1, nb_episodes + 1))
+plt.plot(x, apploximate_rate, label='approximate rate')
+# ラベルや凡例の追加
+plt.xlabel('episode')
+plt.ylabel('value')
+# plt.title('二つのリストのプロット')
+plt.legend() # 凡例を表示
+# プロットの表示
+plt.show()
+
+# 計算時間の比較
+y1 = episode_logger.objective_time # 厳密解の処理時間
+y2 = episode_logger.apploximatetime # 近似解の処理時間
+x = np.arange(len(y1)) # x軸の設定
+valid_indices1 = [i for i, value in enumerate(y1) if value is not None]
+valid_indices2 = [i for i, value in enumerate(y2) if value is not None]
+# 有効なデータのみを抽出
+valid_data1 = [y1[i] for i in valid_indices1]
+valid_data2 = [y2[i] for i in valid_indices2]
+valid_x1 = [x[i] for i in valid_indices1]
+valid_x2 = [x[i] for i in valid_indices2]
+# プロット
+plt.plot(valid_x1, valid_data1, marker='o', linestyle='-', label='exactsolution time')
+plt.plot(valid_x2, valid_data2, marker='o', linestyle='-', label='approximatesolution time')
+# ラベルや凡例の追加
+plt.xlabel('episode')
+plt.ylabel('s')
+# plt.title('二つのリストのプロット')
+plt.legend() # 凡例を表示
+# プロットの表示
+plt.show()

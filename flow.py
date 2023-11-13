@@ -2,190 +2,113 @@
 # import networkx as nx
 class Flow():
     def __init__(self,G,flow_id,s,t,demand):
-        self.G = G
-        # フロー番号
-        self.flow_id = flow_id
+        self.G = G # graph
+        self.flow_id = flow_id # フロー番号
+        self.s = s # 始点s
+        self.t = t # 終点t
+        self.demand = demand # 需要量
+        self.paths = [] # sからtまでのパス
+        self.edges = [] # 流れている辺の集合
 
-        # フローがエリアフローとして属しているエリアのエリア番号
-        self.area_id = None
+        self.area_id = None # フローがエリアフローとして属しているエリアのエリア番号
+        self.area_flow_id = None # エリア内でのフロー番号
+        self.area_path = [] # エリアグラフにおけるパス
 
-        # エリア内でのフロー番号
-        self.area_flow_id = None
-
-        # 始点s
-        self.s = s
-        # 終点t
-        self.t = t
-        # 需要量
-        self.demand = demand
-
-        # sからtまでのパス
-        self.paths = []
-
-        # update_sからupdate_tまでのパス
-        self.up_paths = []
-
-
-        # 更新された始点s
-        self.update_s = s
-        # 更新された終点t
-        self.update_t = t
-
-        # エリアグラフにおけるパス
-        self.area_path = []
-
-
-        # 流れている辺の集合
-        self.edges = []
-
-        # s の存在する管理領域
-        candidate_s_area = []
-        for a in range(G.number_of_area):
-            if(s in G.area_nodes_dict[a]):
-                candidate_s_area.append(a)
+        candidate_s_area = [] # s の存在する管理領域
+        if(s in G.nodes()):
+            candidate_s_area.append(0)
         self.s_area = list(candidate_s_area)
     
-        # t の存在する管理領域
-        candidate_t_area = []
-        for a in range(G.number_of_area):
-            if(t in G.area_nodes_dict[a]):
-                candidate_t_area.append(a)
+        candidate_t_area = [] # t の存在する管理領域
+        if(t in G.nodes()):
+            candidate_t_area.append(0)
         self.t_area = list(candidate_t_area)
 
-        # 既に通ったエリア（s; t が同じ管理領域内に存在しないとき）
-        self.passing_area = []
+        self.update_s = s # 更新された始点s
+        self.update_t = t # 更新された終点t
+        self.up_paths = [] # update_sからupdate_tまでのパス
 
-        #更新後の始点update_sが存在するエリア
-        self.update_s_area = list(candidate_s_area)
+        self.update_s_area = list(candidate_s_area) #更新後の始点update_sが存在するエリア
+        self.update_t_area = list(candidate_t_area) #更新後の終点update_tが存在するエリア    
 
-        #更新後の終点update_tが存在するエリア
-        self.update_t_area = list(candidate_t_area)
+        self.passing_area = [] # 既に通ったエリア（s; t が同じ管理領域内に存在しないとき）
 
+        # super(Flow, self).__init__()
 
-        super(Flow, self).__init__()
-
-
-    #始点の取得
-    def get_id(self):
+    def get_id(self): #idの取得
         return self.flow_id
-
-    #始点の取得
-    def get_s(self):
+    def get_s(self): #始点の取得
         return self.s
-
-    #終点の取得
-    def get_t(self):
+    def get_t(self): #終点の取得
         return self.t
 
-    #更新後の始点の取得
-    def get_update_s(self):
+    ###  始点終点の更新関連
+    def get_update_s(self): #更新後の始点の取得
         return self.update_s
-
-    #始点の更新
-    def set_update_s(self,update_s):
+    def get_update_t(self): #更新後の終点の取得
+        return self.update_t
+    def set_update_s(self,update_s): #始点の更新
         self.update_s = update_s
         # update_sの存在する管理領域を設定
         candidate_s_area = []
-        for a in range(G.number_of_area):
-            if(update_s in G.area_nodes_dict[a]):
-                candidate_s_area.append(a)
+        if(update_s in self.G.nodes()):
+            candidate_s_area.append(0)
         self.update_s_area = list(candidate_s_area)
-
-    #更新後の終点の取得
-    def get_update_t(self):
-        return self.update_t
-
-    #終点の更新
-    def set_update_t(self,update_t):
+    def set_update_t(self,update_t): #終点の更新
         self.update_t = update_t
         # update_sの存在する管理領域を設定
         candidate_t_area = []
-        for a in range(G.number_of_area):
-            if(update_t in G.area_nodes_dict[a]):
-                candidate_t_area.append(a)
+        if(update_t in self.G.nodes()):
+            candidate_t_area.append(0)
         self.update_t_area = list(candidate_t_area)
-
-    #需要量の設定
-    def set_demand(self,demand):
+    
+    ### 需要量関連
+    def get_demand(self): #需要量の取得
+        return self.demand
+    def set_demand(self,demand): #需要量の設定
         self.demand = demand
 
-    #需要量の取得
-    def get_demand(self):
-        return self.demand
-
-    #エリアパスの取得
-    def get_area_path(self):
-        return self.area_path
-
-    #エリアパスの設定
-    def set_area_path(self,area_path):
-        self.area_path = area_path
-
-    #フローが流れている辺の集合の取得
-    def get_edges(self):
+    ### パス関連
+    def set_paths(self,paths): #パスの設定
+        self.paths = paths
+    def get_paths(self): #パスの取得
+        return self.paths
+    def set_up_paths(self,up_paths): # update_sからupdate_tまでのパスの設定
+        self.up_paths = up_paths
+    def get_up_paths(self): # update_sからupdate_tまでのパスの取得
+        return self.up_paths
+    def clear_up_paths(self): # update_sからupdate_tまでのパスリストの初期化
+        self.up_paths.clear()\
+    
+    def get_edges(self): #フローが流れている辺の集合の取得
         return self.edges
-
-    #フローが流れている辺の集合に新たな辺を追加
-    def append_edge(self,source,target):
+    def append_edge(self,source,target): #フローが流れている辺の集合に新たな辺を追加
         self.edges.append(tuple(source,target))
 
-    #始点sが存在するエリアを取得
-    def get_s_area(self):
+    ### エリア関連
+    def get_area_id(self): # area_idの取得
+        return self.area_id
+    def set_area_id(self,area_id): # area_idの設定
+        self.area_id = area_id
+    def get_s_area(self): #始点sが存在するエリアを取得
         return self.s_area
-
-    #終点tが存在するエリアを取得
-    def get_t_area(self):
+    def get_t_area(self): #終点tが存在するエリアを取得
         return self.s_area
-
-    #更新後の始点update_sが存在するエリアを取得
-    def get_update_s_area(self):
+    def get_update_s_area(self): #更新後の始点update_sが存在するエリアを取得
         return self.update_s_area
-
-    #更新後の終点update_tが存在するエリアを取得
-    def get_update_t_area(self):
+    def get_update_t_area(self): #更新後の終点update_tが存在するエリアを取得
         return self.update_t_area
 
-    #通過したエリアの取得
-    def get_passing_area(self):
+    ### エリア×パス関連
+    def get_area_path(self): #エリアパスの取得
+        return self.area_path
+    def set_area_path(self,area_path): #エリアパスの設定
+        self.area_path = area_path
+    def get_passing_area(self): #通過したエリアの取得
         return self.passing_area
-
-    #通過したエリアの追加
-    def append_passing_area(self,area):
+    def append_passing_area(self,area): #通過したエリアの追加
         self.passing_area.append(area)
-
-    #エリアにおけるフローIDの取得
-    def get_area_flow_id(self):
+    def get_area_flow_id(self): #エリアにおけるフローIDの取得
         return self.area_flow_id
-
-    #エリアにおけるフローIDの設定
-    def set_area_flow_id(self,area_flow_id):
+    def set_area_flow_id(self,area_flow_id): #エリアにおけるフローIDの設定
         self.area_flow_id = area_flow_id
-
-    #パスの設定
-    def set_paths(self,paths):
-        self.paths = paths
-
-    #パスの取得
-    def get_paths(self):
-        return self.paths
-
-    # update_sからupdate_tまでのパスの設定
-    def set_up_paths(self,up_paths):
-        self.up_paths = up_paths
-
-
-    # update_sからupdate_tまでのパスの取得
-    def get_up_paths(self):
-        return self.up_paths
-
-    # update_sからupdate_tまでのパスリストの初期化
-    def clear_up_paths(self):
-        self.up_paths.clear()
-
-    # area_idの取得
-    def get_area_id(self):
-        return self.area_id
-
-    # area_idの取得
-    def set_area_id(self,area_id):
-        self.area_id = area_id
