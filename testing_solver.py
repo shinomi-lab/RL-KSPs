@@ -140,6 +140,8 @@ node_l = 3 # gridgraphの列数範囲
 node_h = 3 # gridgraphの列数範囲
 capa_l = 100 # capacityの範囲
 capa_h = 10000 # capacityの範囲
+demand_l = 1
+demand_h = 1000
 
 range_commodity_l = 2 # 品種の範囲
 range_commodity_h = 2 # 品種の範囲
@@ -148,8 +150,9 @@ debag = 0
 original = 0
 graph_model = "random"
 random.seed(1) #ランダムの固定化
+solver_type = "mip"
 
-for i in range(1):
+for i in range(3):
     commodity = random.randint(range_commodity_l, range_commodity_h) # ランダムで品種数を決定
     node = random.randint(node_l, node_h) # ランダムでノード数を決定
     if original == 1:
@@ -251,10 +254,10 @@ for i in range(1):
         while(len(tuples)<commodity):
             if(graph_model == 'grid'):
                 s, t = random.sample(G.nodes(),2)
-                demand  = random.randrange(1, 41, 1)            
+                demand  = random.randrange(demand_l, demand_h)            
             if(graph_model == 'random'):#ノードの中から始点と終点を1つずつランダムで選ぶ
                 s, t = random.sample(G.nodes(),2)
-                demand  = random.randrange(1, 1000)
+                demand  = random.randrange(demand_l, demand_h)
             if(s!=t and ((s,t) not in All_commodity_list)): #流し始めのノードからそのノードに戻ってくる組み合わせは考えていない 
                 tuples.append((s,t))
                 All_commodity_list.append((s,t))
@@ -264,46 +267,60 @@ for i in range(1):
                 commodity_count +=1
         print("finish commodity")
 
-        # 問題の定義(全体の下界)
-        UELB_kakai = Model('UELB_kakai') # モデルの名前
+        if (solver_type == 'mip'): # mip+CBC
+            # 問題の定義(全体の下界)
+            UELB_kakai = Model('UELB_kakai') # モデルの名前
 
-        L_kakai = UELB_kakai.add_var('L_kakai',lb = 0, ub = 1)
-        flow_var_kakai = []
-        for l in range(len(G.all_flows)):
-            x_kakai = [UELB_kakai.add_var('x{}_{}'.format(l,m), var_type = BINARY) for m, (i,j) in r_kakai]#enumerate関数のmとエッジ(i,j)
-            flow_var_kakai.append(x_kakai) #品種エル(l)に対して全ての辺のIDを表す番号mがついている。中身は0-1
+            L_kakai = UELB_kakai.add_var('L_kakai',lb = 0, ub = 1)
+            flow_var_kakai = []
+            for l in range(len(G.all_flows)):
+                x_kakai = [UELB_kakai.add_var('x{}_{}'.format(l,m), var_type = BINARY) for m, (i,j) in r_kakai]#enumerate関数のmとエッジ(i,j)
+                flow_var_kakai.append(x_kakai) #品種エル(l)に対して全ての辺のIDを表す番号mがついている。中身は0-1
 
-        UELB_kakai.objective = minimize(L_kakai) # 目的関数
+            UELB_kakai.objective = minimize(L_kakai) # 目的関数
 
-        UELB_kakai += (-L_kakai) >= -1 # 負荷率1以下
-        capacity = nx.get_edge_attributes(G,'capacity')#全辺のcapacityの値を辞書で取得
-        print("容量制限")
-        for e in range(len(G.edges())): #容量制限
-            UELB_kakai += 0 <= L_kakai - ((xsum([(flow_var_kakai[l.get_id()][e])*(l.get_demand()) for l in G.all_flows])) / capacity[r_kakai[e][1]])
-        print("フロー保存則1")
-        for l in G.all_flows: #フロー保存則
-            UELB_kakai += xsum([flow_var_kakai[l.get_id()][e]*(l.get_demand()) for e in range(len(G.edges())) if r_kakai[e][1][0] == l.get_update_s()]) == l.get_demand()
-            UELB_kakai += xsum([flow_var_kakai[l.get_id()][e]*(l.get_demand()) for e in range(len(G.edges())) if r_kakai[e][1][1] == l.get_update_s()]) == 0
-            UELB_kakai += xsum([flow_var_kakai[l.get_id()][e]*(l.get_demand()) for e in range(len(G.edges())) if r_kakai[e][1][0] == l.get_update_t()]) == 0
-            UELB_kakai += xsum([flow_var_kakai[l.get_id()][e]*(l.get_demand()) for e in range(len(G.edges())) if r_kakai[e][1][1] == l.get_update_t()]) == l.get_demand()
-        print("フロー保存則2")
-        for l in G.all_flows: #フロー保存則
-            for v in G.nodes():
-                if(v != l.get_update_s() and v != l.get_update_t()):
-                    UELB_kakai += xsum([(flow_var_kakai[l.get_id()][e])*(l.get_demand()) for e in range(len(G.edges())) if r_kakai[e][1][0] == v])\
-                    ==xsum([(flow_var_kakai[l.get_id()][e])*(l.get_demand()) for e in range(len(G.edges())) if r_kakai[e][1][1] == v])
+            UELB_kakai += (-L_kakai) >= -1 # 負荷率1以下
+            capacity = nx.get_edge_attributes(G,'capacity')#全辺のcapacityの値を辞書で取得
+            print("容量制限")
+            for e in range(len(G.edges())): #容量制限
+                UELB_kakai += 0 <= L_kakai - ((xsum([(flow_var_kakai[l.get_id()][e])*(l.get_demand()) for l in G.all_flows])) / capacity[r_kakai[e][1]])
+            print("フロー保存則1")
+            for l in G.all_flows: #フロー保存則
+                UELB_kakai += xsum([flow_var_kakai[l.get_id()][e]*(l.get_demand()) for e in range(len(G.edges())) if r_kakai[e][1][0] == l.get_s()]) == l.get_demand()
+                UELB_kakai += xsum([flow_var_kakai[l.get_id()][e]*(l.get_demand()) for e in range(len(G.edges())) if r_kakai[e][1][1] == l.get_s()]) == 0
+                UELB_kakai += xsum([flow_var_kakai[l.get_id()][e]*(l.get_demand()) for e in range(len(G.edges())) if r_kakai[e][1][0] == l.get_t()]) == 0
+                UELB_kakai += xsum([flow_var_kakai[l.get_id()][e]*(l.get_demand()) for e in range(len(G.edges())) if r_kakai[e][1][1] == l.get_t()]) == l.get_demand()
+            print("フロー保存則2")
+            for l in G.all_flows: #フロー保存則
+                for v in G.nodes():
+                    if(v != l.get_s() and v != l.get_t()):
+                        UELB_kakai += xsum([(flow_var_kakai[l.get_id()][e])*(l.get_demand()) for e in range(len(G.edges())) if r_kakai[e][1][0] == v])\
+                        ==xsum([(flow_var_kakai[l.get_id()][e])*(l.get_demand()) for e in range(len(G.edges())) if r_kakai[e][1][1] == v])
 
-        print("start optimize")
-        #線形計画問題を解く
-        UELB_kakai.optimize()
+            print("start optimize")
+            #線形計画問題を解く
+            UELB_kakai.optimize()
 
-        with open('exactsolution_test.csv', 'a', newline='') as f:
-            out = csv.writer(f)
-            out.writerow([i, UELB_kakai.objective_value]) 
-    
-        print('Objective :', UELB_kakai.objective_value) #最小の最大負荷率
-        print('commodity :', Commodity_list) #全ての品種
-        # print(capacity)
-        # nx.draw(G, with_labels=True)
-        # plt.show()
-        print('--------------------------------------------')
+            with open('exactsolution_test.csv', 'a', newline='') as f:
+                out = csv.writer(f)
+                out.writerow([i, UELB_kakai.objective_value]) 
+        
+            print('Objective :', UELB_kakai.objective_value) #最小の最大負荷率
+            print('commodity :', Commodity_list) #全ての品種
+            print('capacity :',capacity)
+            # nx.draw(G, with_labels=True)
+            # plt.show()
+            print('--------------------------------------------')
+        
+        # if (solver_type == 'pulp'): # pulp+SCIP
+
+        #     with open('exactsolution_test.csv', 'a', newline='') as f:
+        #         out = csv.writer(f)
+        #         out.writerow([i, UELB_kakai.objective_value]) 
+        
+        #     print('Objective :', UELB_kakai.objective_value) #最小の最大負荷率
+        #     print('commodity :', Commodity_list) #全ての品種
+        #     print('capacity :',capacity)
+        #     # nx.draw(G, with_labels=True)
+        #     # plt.show()
+        #     print('--------------------------------------------')
