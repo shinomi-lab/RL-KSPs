@@ -10,7 +10,7 @@ from flow import Flow
 import random
 import matplotlib.pyplot as plt
 import graph_making
-from pyscipopt import Model, quicksum
+from pyscipopt import Model as SCIPModel, quicksum
 
 with open('exactsolution_test.csv','w') as f:
     out = csv.writer(f)
@@ -27,10 +27,10 @@ range_commodity_l = 2 # 品種の範囲
 range_commodity_h = 2 # 品種の範囲
 graph_model = "random"
 random.seed(1) #ランダムの固定化
-solver_type = "pulp"
+solver_type = "SCIP"
 
-for i in range(3):
-    commodity = random.randint(range_commodity_l) # ランダムで品種数を決定
+for i in range(1):
+    commodity = random.randint(range_commodity_l,range_commodity_h) # ランダムで品種数を決定
     node = random.randint(node_l, node_h) # ランダムでノード数を決定
 
     if(graph_model == 'grid'):
@@ -38,7 +38,8 @@ for i in range(3):
         G.gridMaker(G,node,node,0.1,capa_l,capa_h) #G,エリア数,エリアのノード数,列数,行数,ε浮動小数点
     if(graph_model == 'random'):
         G = graph_making.Graphs(commodity) #品種数,areaの品種数
-        G.randomGraph(G, degree, i, node, capa_l, capa_h) # 5 is each node is joined with its k nearest neighbors in a ring topology. 5はノード数に関係しそう　次数だから
+        # G.randomGraph(G, degree, i, node, capa_l, capa_h) # 5 is each node is joined with its k nearest neighbors in a ring topology. 5はノード数に関係しそう　次数だから
+        G.randomGraph(G, degree, node, capa_l, capa_h) # 5 is each node is joined with its k nearest neighbors in a ring topology. 5はノード数に関係しそう　次数だから
 
     print("finish G")
     r_kakai = list(enumerate(G.edges())) #グラフのエッジと番号を対応付けたもの
@@ -102,12 +103,13 @@ for i in range(3):
             out.writerow([i, UELB_kakai.objective_value, elapsed_time]) 
     
         print('Objective :', UELB_kakai.objective_value) #最小の最大負荷率
+        print('time :', elapsed_time)
         print('commodity :', Commodity_list) #全ての品種
         print('capacity :',capacity)
         # nx.draw(G, with_labels=True)
         # plt.show()
         print('--------------------------------------------')
-        # solver_type = "pulp"
+        # solver_type = "PySCIPOpt"
     
     if (solver_type == 'pulp'): # pulp+CBC
         UELB_problem = pulp.LpProblem('UELB', pulp.LpMinimize) # モデルの名前
@@ -152,11 +154,62 @@ for i in range(3):
             out.writerow([i, L.value(),elapsed_time]) 
     
         print('Objective :', pulp.value(UELB_problem.objective))
+        print('time :', elapsed_time)
         print('commodity :', Commodity_list) #全ての品種
         print('capacity :',capacity)
         # print(r_kakai)
         # nx.draw(G, with_labels=True)
         # plt.show()
         print('--------------------------------------------')
-        # solver_type = "mip"
+        # solver_type = "PySCIPOpt"
 
+    if (solver_type == 'SCIP'): # PySCIPOpt+SCIP
+
+        # SCIP Modelの作成
+        model = SCIPModel("UELB_problem_SCIP")
+
+        # 変数の定義
+        L = model.addVar(vtype="C", name="L", lb=0, ub=1)
+   
+        flow_var_kakai = []
+        for l in range(len(G.all_flows)):
+            e_01 = [model.addVar('x{}_{}'.format(l, m), vtype='B') for m, (i, j) in enumerate(r_kakai)]
+            flow_var_kakai.append(e_01)
+
+        model.setObjective(L, "minimize")
+
+        model.addCons((L) <= 1)# 負荷率1以下
+
+        for e in range(len(G.edges())): # 容量制限
+            model.addCons(L - (quicksum([(flow_var_kakai[l.get_id()][e])*(l.get_demand()) for l in G.all_flows]) / capacity[r_kakai[e][1]]) >= 0)
+
+        for l in G.all_flows: #フロー保存則
+            model.addCons( quicksum([flow_var_kakai[l.get_id()][e]*(l.get_demand()) for e in range(len(G.edges())) if r_kakai[e][1][0] == l.get_s()]) == l.get_demand() )
+            model.addCons( quicksum([flow_var_kakai[l.get_id()][e]*(l.get_demand()) for e in range(len(G.edges())) if r_kakai[e][1][1] == l.get_s()]) == 0 )
+            model.addCons( quicksum([flow_var_kakai[l.get_id()][e]*(l.get_demand()) for e in range(len(G.edges())) if r_kakai[e][1][0] == l.get_t()]) == 0 )
+            model.addCons( quicksum([flow_var_kakai[l.get_id()][e]*(l.get_demand()) for e in range(len(G.edges())) if r_kakai[e][1][1] == l.get_t()]) == l.get_demand() )
+        
+        for l in G.all_flows: #フロー保存則
+            for v in G.nodes():
+                if(v != l.get_s() and v != l.get_t()):
+                    model.addCons( quicksum([(flow_var_kakai[l.get_id()][e])*(l.get_demand()) for e in range(len(G.edges())) if r_kakai[e][1][0] == v])\
+                    ==quicksum([(flow_var_kakai[l.get_id()][e])*(l.get_demand()) for e in range(len(G.edges())) if r_kakai[e][1][1] == v]) )
+
+        print("start optimize")
+        start = time.time()
+        model.optimize()
+        elapsed_time = time.time()-start
+        
+        with open('exactsolution_test.csv', 'a', newline='') as f:
+            out = csv.writer(f)
+            out.writerow([i, -model.getObjVal(),elapsed_time]) 
+    
+        print('Objective :', model.getObjVal())
+        print('time :', elapsed_time)
+        print('commodity :', Commodity_list) #全ての品種
+        print('capacity :',capacity)
+        # print(r_kakai)
+        # nx.draw(G, with_labels=True)
+        # plt.show()
+        print('--------------------------------------------')
+        solver_type = "mip"
