@@ -7,7 +7,7 @@ import re
 import collections
 
 class Graphs(nx.DiGraph):
-    def __init__(self,commodity,area_commodity):
+    def __init__(self,commodity):
         self.G = nx.DiGraph() # 有向グラフを定義
         self.commodity = commodity #フローの品種数
 
@@ -45,7 +45,9 @@ class Graphs(nx.DiGraph):
                     self.G.add_bidirectionaledge(self.G,(w-1)*height+h,w*height+h,capa_l,capa_h)
 
     # def randomGraph(self, G, n, k, seed, number_of_area, node, area_height):
-    def randomGraph(self, G, k, seed, node, capa_l, capa_h):
+    # def randomGraph(self, G, k, seed, node, capa_l, capa_h):
+    def randomGraph(self, G, k, node, capa_l, capa_h):
+
         self.G = G
         self.node = node # node数
         self.capa_l = capa_l
@@ -53,7 +55,9 @@ class Graphs(nx.DiGraph):
         ty = 0 # randomグラフにおいて、s=0だとnewman_watts_strogatz_graphになり、1だと任意のrandomグラフ
         if ty == 0:
             # 一旦NWSを作ってGに当てはめていく
-            NWS = nx.newman_watts_strogatz_graph(self.node, k, 0.5, seed=seed) # (node, Each node is joined with its k nearest neighbors in a ring topology, probability, seed)
+            # NWS = nx.newman_watts_strogatz_graph(self.node, k, 0.5, seed=seed) # (node, Each node is joined with its k nearest neighbors in a ring topology, probability, seed)
+            NWS = nx.newman_watts_strogatz_graph(self.node, k, 0.5) # (node, Each node is joined with its k nearest neighbors in a ring topology, probability, seed)
+
             for i in NWS.nodes():
                 self.G.add_node(i)
             for (x, y) in NWS.edges():
