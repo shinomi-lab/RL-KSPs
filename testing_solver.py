@@ -15,21 +15,20 @@ from pyscipopt import Model as SCIPModel, quicksum
 with open('exactsolution_test.csv','w') as f:
     out = csv.writer(f)
 
-random_p = 0.15 # randomgraphの密度
-node_l = 3 # gridgraphの列数範囲
-node_h = 3 # gridgraphの列数範囲
+node_l = 10 # gridgraphの列数範囲
+node_h = 10 # gridgraphの列数範囲
 capa_l = 1000 # capacityの範囲
 capa_h = 10000 # capacityの範囲
 demand_l = 1
 demand_h = 500
 degree = 2
-range_commodity_l = 2 # 品種の範囲
-range_commodity_h = 2 # 品種の範囲
+range_commodity_l = 5 # 品種の範囲
+range_commodity_h = 5 # 品種の範囲
 graph_model = "random"
 random.seed(1) #ランダムの固定化
-solver_type = "SCIP"
+solver_type = "mip"
 
-for i in range(1):
+for i in range(10):
     commodity = random.randint(range_commodity_l,range_commodity_h) # ランダムで品種数を決定
     node = random.randint(node_l, node_h) # ランダムでノード数を決定
 
@@ -109,7 +108,7 @@ for i in range(1):
         # nx.draw(G, with_labels=True)
         # plt.show()
         print('--------------------------------------------')
-        # solver_type = "PySCIPOpt"
+        solver_type = "pulp"
     
     if (solver_type == 'pulp'): # pulp+CBC
         UELB_problem = pulp.LpProblem('UELB', pulp.LpMinimize) # モデルの名前
@@ -161,7 +160,7 @@ for i in range(1):
         # nx.draw(G, with_labels=True)
         # plt.show()
         print('--------------------------------------------')
-        # solver_type = "PySCIPOpt"
+        solver_type = "SCIP"
 
     if (solver_type == 'SCIP'): # PySCIPOpt+SCIP
 
@@ -202,7 +201,7 @@ for i in range(1):
         
         with open('exactsolution_test.csv', 'a', newline='') as f:
             out = csv.writer(f)
-            out.writerow([i, -model.getObjVal(),elapsed_time]) 
+            out.writerow([i, model.getObjVal(),elapsed_time]) 
     
         print('Objective :', model.getObjVal())
         print('time :', elapsed_time)
