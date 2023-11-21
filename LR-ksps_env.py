@@ -48,7 +48,7 @@ class min_maxload_KSPs_Env(gym.core.Env): # クラスの定義
         for z in range(len(self.edge_list)):
             self.edges_notindex.append(self.edge_list[z][1])
 
-        self.commodity_dictlist, self.commodity_list = self.generate_commodity(self.commodity) # 品種作成
+        self.commodity_list = self.generate_commodity(self.commodity) # 品種作成
         self.random_ksps, self.allcommodity_ksps, self.allcommodity_notfstksps = self.search_ksps(self.K, self.G, self.commodity, self.commodity_list) # kspsの探索
         # self.combination = self.searh_combination(self.random_ksps) # 抽出バージョン
         self.combination = self.searh_combination(self.allcommodity_ksps)
@@ -101,7 +101,7 @@ class min_maxload_KSPs_Env(gym.core.Env): # クラスの定義
         for z in range(len(self.edge_list)):
             self.edges_notindex.append(self.edge_list[z][1])
 
-        self.commodity_dictlist, self.commodity_list = self.generate_commodity(self.commodity) # 品種作成
+        self.commodity_list = self.generate_commodity(self.commodity) # 品種作成
         self.random_ksps, self.allcommodity_ksps, self.allcommodity_notfstksps = self.search_ksps(self.K, self.G, self.commodity, self.commodity_list) # kspsの探索
         # self.combination = self.searh_combination(self.random_ksps) # 抽出バージョン
         self.combination = self.searh_combination(self.allcommodity_ksps) # 組み合わせを求める
@@ -111,7 +111,6 @@ class min_maxload_KSPs_Env(gym.core.Env): # クラスの定義
      
     def generate_commodity(self, commodity): # 品種の定義(numpy使用)
         determin_st = []
-        commodity_dictlist = []
         commodity_list = []
         for i in range(commodity): # commodity generate
             commodity_dict = {}
@@ -131,10 +130,9 @@ class min_maxload_KSPs_Env(gym.core.Env): # クラスの定義
             commodity_dict["demand"] = demand
 
             commodity_list.append([s,t,demand])
-            commodity_dictlist.append(commodity_dict)
         commodity_list.sort(key=lambda x: -x[2]) # demand大きいものから降順
 
-        return commodity_dictlist,commodity_list
+        return commodity_list
 
     def search_ksps(self, K, G, commodity,commodity_list): # 各品種のkspsを求める
         allcommodity_ksps = []
@@ -322,7 +320,7 @@ def test_environment():
 # --------------------------------------------------------------------------------------- 
 graph_model = "random"
 random.seed(1) #ランダムの固定化
-solver_type = "pulp"
+solver_type = "mip"
 result_model = "graph"
 
 K = 10 # パスの個数
@@ -330,7 +328,7 @@ n_action = 10# candidateの個数
 obs_low = -10 # 観測変数のスペース　下限
 obs_high = 10 # 観測変数のスペース　上限
 node_l = 20 # gridgraphの列数範囲
-node_h = 100 # gridgraphの列数範囲
+node_h = 20 # gridgraphの列数範囲
 range_commodity_l = 5 # 品種の範囲
 range_commodity_h = 5 # 品種の範囲
 sample_size = 5  # 抽出する要素の数
@@ -340,9 +338,9 @@ demand_l = 1
 demand_h = 500
 degree = 5
 
-ln_episodes =  3000 # 訓練エピソード数
+ln_episodes =  100 # 訓練エピソード数
 max_step =  50 # 訓練時の最大step数
-nb_episodes = 100 # テストエピソード数
+nb_episodes = 2 # テストエピソード数
 nb_max_episode_steps = 50 # テスト時のstep数
 
 print("start set env")
@@ -420,7 +418,7 @@ class CustomEpisodeLogger(rl.callbacks.Callback):
             writer.writerows(self.env.commodity_list) # 品種の保存
         nx.write_gml(self.env.G, "graph.gml") # グラフの保存
 
-        E = Solve_exact_solution(self.episode) # Exact_Solution.pyの厳密解クラスの呼び出し
+        E = Solve_exact_solution(self.episode,solver_type) # Exact_Solution.pyの厳密解クラスの呼び出し
         objective_value,objective_time = E.solve_exact_solution_to_env() # 厳密解を計算
         self.objective_values.append(objective_value) # 厳密解情報を格納
         self.objective_time.append(objective_time)
