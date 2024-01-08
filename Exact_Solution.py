@@ -3,14 +3,16 @@ from mip import *
 import time
 import csv
 import networkx as nx
+import matplotlib.pyplot as plt
 from flow import Flow
 import pulp
 from pyscipopt import Model as SCIPModel, quicksum
 
 class Solve_exact_solution():
-    def __init__(self, episode, solver_type):
+    def __init__(self, episode, solver_type, exact_file_name):
         self.episode = episode
         self.solver_type = solver_type
+        self.exact_file_name = exact_file_name
         self.G = nx.read_gml("graph.gml",destringizer=int) # グラフの定義
         self.G.all_flows = list()
 
@@ -70,7 +72,7 @@ class Solve_exact_solution():
             UELB_kakai.optimize()
             elapsed_time = time.time()-start
 
-            with open('exactsolution.csv.csv', 'a', newline='') as f:
+            with open(self.exact_file_name, 'a', newline='') as f:
                 out = csv.writer(f)
                 out.writerow([self.episode, UELB_kakai.objective_value, elapsed_time]) 
             return UELB_kakai.objective_value,elapsed_time
@@ -113,7 +115,7 @@ class Solve_exact_solution():
             # print(status)
             # print(UELB_problem) # 制約式を全て出してくれる 
             
-            with open('exactsolution.csv', 'a', newline='') as f:
+            with open(self.exact_file_name, 'a', newline='') as f:
                 out = csv.writer(f)
                 out.writerow([self.episode, L.value(),elapsed_time]) 
             return L.value(),elapsed_time
@@ -150,12 +152,14 @@ class Solve_exact_solution():
                         model.addCons( quicksum([(flow_var_kakai[l.get_id()][e])*(l.get_demand()) for e in range(len(self.G.edges())) if self.r_kakai[e][1][0] == v])\
                         ==quicksum([(flow_var_kakai[l.get_id()][e])*(l.get_demand()) for e in range(len(self.G.edges())) if self.r_kakai[e][1][1] == v]) )
 
-            print("start optimize")
+            # print("start optimize")
             start = time.time()
             model.optimize()
             elapsed_time = time.time()-start
             
-            with open('exactsolution.csv', 'a', newline='') as f:
+            with open(self.exact_file_name, 'a', newline='') as f:
                 out = csv.writer(f)
                 out.writerow([self.episode, model.getObjVal(),elapsed_time]) 
+            # nx.draw(self.G, with_labels=True)
+            # plt.show()
             return model.getObjVal(),elapsed_time

@@ -16,9 +16,18 @@ import csv
 import numpy as np
 import random
 from Exact_Solution import Solve_exact_solution
+from Simple_ksp import Solve_simple_ksp
 from flow import Flow
 import graph_making
-
+import os
+from keras.models import Sequential
+from keras.layers import Dense, Activation, Flatten,Input
+from keras.optimizers import Adam
+from rl.agents.dqn import DQNAgent
+from rl.policy import BoltzmannQPolicy
+from rl.memory import SequentialMemory
+import rl.callbacks
+import datetime
 
 class min_maxload_KSPs_Env(gym.core.Env): # クラスの定義
     #gymで強化学習環境を作る場合はstep,reset,render,close,seedメソッドを実装
@@ -251,8 +260,65 @@ class min_maxload_KSPs_Env(gym.core.Env): # クラスの定義
                 x_kakai[idx] = 1
             zo_combination.append(x_kakai)
         return zo_combination
-#####
-# --------------------------------------------------------------------------------------- 
+
+# カスタムコールバックを作成
+class CustomEpisodeLogger(rl.callbacks.Callback):
+    def __init__(self):
+        self.episode = 0
+        self.start_time = 0 # エピソードごとの処理時間
+        self.rewards = {}  # エピソードごとの報酬を保存する辞書
+        self.objective_values = []
+        self.objective_time = []
+        self.objective_values_ksp = []
+        self.objective_time_ksp = []
+        self.apploximatesolutions = []
+        self.apploximatetime = []
+
+    def on_episode_begin(self, episode, logs):
+        self.episode = episode
+        self.start_time = time.time() # エピソード開始時間の取得
+        # 新しいエピソードが始まるたびに新しいリストを作成
+        self.rewards[self.episode] = []
+
+    def on_step_end(self, step, logs):
+        reward = logs['reward']
+        self.rewards[self.episode].append(reward)
+
+    def on_episode_end(self, episode, logs):
+        # エピソードが終了した際に呼ばれる
+        # エピソード終了時に1回だけログを表示
+        end_time = time.time() # エピソード終了時間の取得
+        elapsed_time = end_time - self.start_time # 処理時間計算
+        apploximate_solution = self.rewards[self.episode][-1]*(-1)
+        self.apploximatesolutions.append(apploximate_solution)
+        self.apploximatetime.append(elapsed_time)
+        steps = logs['nb_steps']
+        print(f"Episode {self.episode}: approximate_solution: {apploximate_solution}, steps: {steps}, time: {elapsed_time:.2f} seconds") # 独自のログ出力
+
+        # ファイルにデータを書き込む
+        with open('commodity_data.csv','w') as f:
+            writer=csv.writer(f,lineterminator='\n')
+            writer.writerows(self.env.commodity_list) # 品種の保存
+        nx.write_gml(self.env.G, "graph.gml") # グラフの保存
+
+        # approximateの書き込み
+        with open(approx_file_name, 'a', newline='') as f:
+            out = csv.writer(f)
+            out.writerow([self.episode, apploximate_solution, elapsed_time])
+
+        # 厳密解を求める
+        E = Solve_exact_solution(self.episode,solver_type,exact_file_name) # Exact_Solution.pyの厳密解クラスの呼び出し
+        objective_value,objective_time = E.solve_exact_solution_to_env() # 厳密解を計算
+        self.objective_values.append(objective_value) # 厳密解情報を格納
+        self.objective_time.append(objective_time)
+
+        # 単純kspを求める
+        E = Solve_simple_ksp(self.episode,solver_type,simpleksp_file_name,K,objective_value) # Simple_ksp.pyの厳密解クラスの呼び出し
+        objective_value_ksp,objective_time_ksp = E.solve_simple_ksp_to_env() # 厳密解を計算
+        self.objective_values_ksp.append(objective_value_ksp) # 厳密解情報を格納
+        self.objective_time_ksp.append(objective_time_ksp)
+
+
 def test_environment():
     # 環境を初期化
     env = min_maxload_KSPs_Env(K, n_action, obs_low, obs_high, max_step, node_l, node_h, range_commodity_l, range_commodity_h, sample_size,capa_l,capa_h,demand_l,demand_h,degree)
@@ -317,198 +383,264 @@ def test_environment():
     
     # 環境をクローズ
     env.close()
+
 # --------------------------------------------------------------------------------------- 
+
 graph_model = "random"
 random.seed(1) #ランダムの固定化
-solver_type = "mip"
-result_model = "graph"
+solver_type = "SCIP"
+result_model = "graph2" # graph1:厳密解との比較　graph2:単純kspとの比較
 
 K = 10 # パスの個数
-n_action = 10# candidateの個数
-obs_low = -10 # 観測変数のスペース　下限
-obs_high = 10 # 観測変数のスペース　上限
+n_action = 20# candidateの個数
+obs_low = -20 # 観測変数のスペース　下限
+obs_high = 20 # 観測変数のスペース　上限
 node_l = 20 # gridgraphの列数範囲
-node_h = 20 # gridgraphの列数範囲
+node_h = 100 # gridgraphの列数範囲
 range_commodity_l = 5 # 品種の範囲
 range_commodity_h = 5 # 品種の範囲
 sample_size = 5  # 抽出する要素の数
 capa_l = 1000 # capacityの範囲
 capa_h = 10000 # capacityの範囲
-demand_l = 1
-demand_h = 500
-degree = 5
+demand_l = 1 # 需要量の範囲
+demand_h = 500 # 需要量の範囲
+degree = 3
 
-ln_episodes =  100 # 訓練エピソード数
-max_step =  50 # 訓練時の最大step数
-nb_episodes = 2 # テストエピソード数
-nb_max_episode_steps = 50 # テスト時のstep数
+ln_episodes =  10000 # 訓練エピソード数
+max_step =  20 # 訓練時の最大step数
+nb_episodes = 3 # テストエピソード数
+nb_max_episode_steps = 20 # テスト時のstep数
 
-print("start set env")
-env = min_maxload_KSPs_Env(K, n_action, obs_low, obs_high, max_step, node_l, node_h, range_commodity_l, range_commodity_h, sample_size,capa_l,capa_h,demand_l,demand_h,graph_model,degree) # 実行
-print("finish set env")
-# test_environment() # テストを実行
+# ln_episodes_list = [5000,10000,15000,20000,25000,30000,35000,40000,45000,50000]
+ln_episodes_list = [5000]
 
-from keras.models import Sequential
-from keras.layers import Dense, Activation, Flatten,Input
-from keras.optimizers import Adam
-from rl.agents.dqn import DQNAgent
-from rl.policy import BoltzmannQPolicy
-from rl.memory import SequentialMemory
 
-# ニューラルネットワークの構造を定義
-model = Sequential() # モデルの構築
-model.add(Flatten(input_shape=(1,) + env.observation_space.shape)) # 入力層
-model.add(Dense(128)) # 中間層
-model.add(Activation('relu')) # 中間層の活性化関数定義
-model.add(Dense(n_action)) # 出力層
-model.add(Activation('linear')) # 出力層の活性化関数定義
-print("model.summary()",model.summary()) # モデルの定義をコンソールに出力
+for kurikaeshi in range(len(ln_episodes_list)):
+    ln_episodes = ln_episodes_list[kurikaeshi]
 
-# モデルのコンパイル
-memory = SequentialMemory(limit=50000, window_length=1) # メモリの用意
-policy = BoltzmannQPolicy(tau=1.) # ポリシーの設定
-dqn = DQNAgent(model=model, nb_actions=n_action, memory=memory, nb_steps_warmup=50, target_model_update=1e-2, policy=policy) # エージェントの作成
-dqn.compile(Adam(lr=1e-3), metrics=['mae']) # エージェントをコンパイル
+    print("start set env")
+    env = min_maxload_KSPs_Env(K, n_action, obs_low, obs_high, max_step, node_l, node_h, range_commodity_l, range_commodity_h, sample_size,capa_l,capa_h,demand_l,demand_h,graph_model,degree) # 実行
+    print("finish set env")
+    # test_environment() # テストを実行
 
-# 訓練
-history = dqn.fit(env, nb_steps=ln_episodes, visualize=True, verbose=2, nb_max_episode_steps=max_step)
+    # ニューラルネットワークの構造を定義
+    model = Sequential() # モデルの構築
+    model.add(Flatten(input_shape=(1,) + env.observation_space.shape)) # 入力層
+    model.add(Dense(128)) # 中間層
+    model.add(Activation('relu')) # 中間層の活性化関数定義
+    model.add(Dense(n_action)) # 出力層
+    model.add(Activation('linear')) # 出力層の活性化関数定義　恒等関数
+    print("model.summary()",model.summary()) # モデルの定義をコンソールに出力
 
-#　厳密解のファイルを用意
-with open('exactsolution.csv','w') as f:
-    out = csv.writer(f)
-with open('approximatesolution.csv','w') as f:
-    out = csv.writer(f)
+    # モデルのコンパイル
+    memory = SequentialMemory(limit=50000, window_length=1) # メモリの用意
+    policy = BoltzmannQPolicy(tau=1.) # ポリシーの設定
+    dqn = DQNAgent(model=model, nb_actions=n_action, memory=memory, nb_steps_warmup=50, target_model_update=1e-2, policy=policy) # エージェントの作成
+    dqn.compile(Adam(lr=1e-3), metrics=['mae']) # エージェントをコンパイル
 
-import rl.callbacks
-# カスタムコールバックを作成
-class CustomEpisodeLogger(rl.callbacks.Callback):
-    def __init__(self):
-        self.episode = 0
-        self.start_time = 0 # エピソードごとの処理時間
-        self.rewards = {}  # エピソードごとの報酬を保存する辞書
-        self.objective_values = []
-        self.objective_time = []
-        self.apploximatesolutions = []
-        self.apploximatetime = []
+    # 訓練
+    history = dqn.fit(env, nb_steps=ln_episodes, visualize=True, verbose=2, nb_max_episode_steps=max_step)
+    
+    # 厳密解のファイルを用意
+    exact_file_name = f'exactsolution_{kurikaeshi}_{range_commodity_l}.csv'
+    with open(exact_file_name, 'w') as f:
+        out = csv.writer(f)
+    # 近似解のファイルを用意
+    approx_file_name = f'approximatesolution_{kurikaeshi}_{range_commodity_l}.csv'
+    with open(approx_file_name, 'w') as f:
+        out = csv.writer(f)
+    # 単純kspのファイルを用意
+    simpleksp_file_name = f'simpleksp_{kurikaeshi}_{range_commodity_l}.csv'
+    with open(simpleksp_file_name, 'w') as f:
+        out = csv.writer(f)
+    
+    random.seed(7) #ランダムの固定化　テスト条件の固定
+    episode_logger = CustomEpisodeLogger()
+    # テスト時にカスタムコールバックを使用してエピソードごとの処理時間を取得
+    dqn.test(env, nb_episodes=nb_episodes, nb_max_episode_steps=nb_max_episode_steps, visualize=False, callbacks=[episode_logger], verbose=0)
+    env.close()
 
-    def on_episode_begin(self, episode, logs):
-        self.episode = episode
-        self.start_time = time.time() # エピソード開始時間の取得
-        # 新しいエピソードが始まるたびに新しいリストを作成
-        self.rewards[self.episode] = []
+    if (result_model == 'graph1'):
+        now = datetime.datetime.now()
+        # グラフ保存先ディレクトリ
+        save_dir = 'episode_graphs/'
+        # ディレクトリが存在しない場合は作成
+        os.makedirs(save_dir, exist_ok=True)
 
-    def on_step_end(self, step, logs):
-        reward = logs['reward']
-        self.rewards[self.episode].append(reward)
+        # stepごとの平均reward推移
+        mean_reward_list = []
+        for i in range(len(episode_logger.rewards[0])):
+            heikin = 0
+            for j in range(len(episode_logger.rewards)):
+                heikin = heikin + episode_logger.rewards[j][i]
+            mean_reward_list.append((heikin / nb_episodes) * -1)
+        x = list(range(1, nb_max_episode_steps + 1))
+        plt.plot(x, mean_reward_list, label='N={}'.format(nb_episodes))
+        plt.xlabel('step', fontsize=18)
+        plt.ylabel('mean reward', fontsize=18)
+        plt.legend(loc='upper right', fontsize=18)
+        plt.xticks(x)
 
-    def on_episode_end(self, episode, logs):
-        # エピソードが終了した際に呼ばれる
-        # エピソード終了時に1回だけログを表示
-        end_time = time.time() # エピソード終了時間の取得
-        elapsed_time = end_time - self.start_time # 処理時間計算
-        apploximate_solution = self.rewards[self.episode][-1]*(-1)
-        self.apploximatesolutions.append(apploximate_solution)
-        self.apploximatetime.append(elapsed_time)
-        steps = logs['nb_steps']
-        print(f"Episode {self.episode}: approximate_solution: {apploximate_solution}, steps: {steps}, time: {elapsed_time:.2f} seconds") # 独自のログ出力
+        # グラフをエピソードごとに保存
+        filename = f"episode_{kurikaeshi + 1}_{range_commodity_l}_{now.strftime('%Y-%m-%d_%H-%M-%S')}_step_reward.png"
 
-        # ファイルにデータを書き込む
-        with open('commodity_data.csv','w') as f:
-            writer=csv.writer(f,lineterminator='\n')
-            writer.writerows(self.env.commodity_list) # 品種の保存
-        nx.write_gml(self.env.G, "graph.gml") # グラフの保存
+        filepath = os.path.join(save_dir, filename)
+        plt.savefig(filepath)
+        plt.clf()
 
-        E = Solve_exact_solution(self.episode,solver_type) # Exact_Solution.pyの厳密解クラスの呼び出し
-        objective_value,objective_time = E.solve_exact_solution_to_env() # 厳密解を計算
-        self.objective_values.append(objective_value) # 厳密解情報を格納
-        self.objective_time.append(objective_time)
+        # 厳密解と近似解の比較
+        y1 = episode_logger.objective_values # 厳密解
+        y2 = episode_logger.apploximatesolutions # 近似解
+        x = np.arange(len(y1)) # x軸の設定
+        valid_indices1 = [i for i, value in enumerate(y1) if value is not None]
+        valid_indices2 = [i for i, value in enumerate(y2) if value is not None]
+        # 有効なデータのみを抽出
+        valid_data1 = [y1[i] for i in valid_indices1]
+        valid_data2 = [y2[i] for i in valid_indices2]
+        valid_x1 = [x[i] for i in valid_indices1]
+        valid_x2 = [x[i] for i in valid_indices2]
+        # プロット
+        plt.plot(valid_x1, valid_data1, marker='o', linestyle='-', label='exactsolution')
+        plt.plot(valid_x2, valid_data2, marker='o', linestyle='-', label='approximatesolution')
+        # ラベルや凡例の追加
+        plt.xlabel('episode')
+        plt.ylabel('value')
+        # plt.title('二つのリストのプロット')
+        plt.legend() # 凡例を表示
 
-        with open('approximatesolution.csv', 'a', newline='') as f:
-            out = csv.writer(f)
-            out.writerow([self.episode, apploximate_solution, elapsed_time]) 
+        # グラフをエピソードごとに保存
+        filename = f"episode_{kurikaeshi + 1}_{range_commodity_l}_{now.strftime('%Y-%m-%d_%H-%M-%S')}_value.png"
         
-episode_logger = CustomEpisodeLogger()
-# テスト時にカスタムコールバックを使用してエピソードごとの処理時間を取得
-dqn.test(env, nb_episodes=nb_episodes, nb_max_episode_steps=nb_max_episode_steps, visualize=False, callbacks=[episode_logger], verbose=0)
-env.close() 
+        filepath = os.path.join(save_dir, filename)
+        plt.savefig(filepath)
+        plt.clf()
 
-if (result_model == 'graph'):
-    # stepごとの平均reward推移
-    mean_reward_list=[]
-    for i in range(len(episode_logger.rewards[0])):
-        heikin=0
-        for j in range(len(episode_logger.rewards)):
-            heikin=heikin+episode_logger.rewards[j][i]
-        mean_reward_list.append((heikin/nb_episodes)*-1)
-    x = list(range(1, nb_max_episode_steps + 1))
-    plt.plot(x, mean_reward_list, label='N={}'.format(nb_episodes))
-    plt.xlabel('step', fontsize=18)
-    plt.ylabel('mean reward', fontsize=18)
-    plt.legend(loc='upper right', fontsize=18)
-    plt.xticks(x)
-    plt.show()
-    # plt.savefig('mean_award.png')
+        #近似率の算出
+        apploximate_rate = []
+        for i in range(nb_episodes):
+            if y1[i] is None:
+                apploximaterate = 110
+            elif y2[i] is None:
+                apploximaterate = 0
+            else:
+                apploximaterate = y1[i]/y2[i]*100
+            apploximate_rate.append(apploximaterate)
+        x = list(range(1, nb_episodes + 1))
+        plt.plot(x, apploximate_rate, label='approximate rate')
+        # ラベルや凡例の追加
+        plt.xlabel('episode')
+        plt.ylabel('value')
+        # plt.title('二つのリストのプロット')
+        plt.legend() # 凡例を表示
 
-    # 厳密解と近似解の比較
-    y1 = episode_logger.objective_values # 厳密解
-    y2 = episode_logger.apploximatesolutions # 近似解
-    x = np.arange(len(y1)) # x軸の設定
-    valid_indices1 = [i for i, value in enumerate(y1) if value is not None]
-    valid_indices2 = [i for i, value in enumerate(y2) if value is not None]
-    # 有効なデータのみを抽出
-    valid_data1 = [y1[i] for i in valid_indices1]
-    valid_data2 = [y2[i] for i in valid_indices2]
-    valid_x1 = [x[i] for i in valid_indices1]
-    valid_x2 = [x[i] for i in valid_indices2]
-    # プロット
-    plt.plot(valid_x1, valid_data1, marker='o', linestyle='-', label='exactsolution')
-    plt.plot(valid_x2, valid_data2, marker='o', linestyle='-', label='approximatesolution')
-    # ラベルや凡例の追加
-    plt.xlabel('episode')
-    plt.ylabel('value')
-    # plt.title('二つのリストのプロット')
-    plt.legend() # 凡例を表示
-    # プロットの表示
-    plt.show()
+        # グラフをエピソードごとに保存
+        filename = f"episode_{kurikaeshi + 1}_{range_commodity_l}_{now.strftime('%Y-%m-%d_%H-%M-%S')}_rate.png"
+        filepath = os.path.join(save_dir, filename)
+        plt.savefig(filepath)
+        plt.clf()
 
-    #近似率の算出
-    apploximate_rate = []
-    for i in range(nb_episodes):
-        if y1[i] is None:
-            apploximaterate = 110
-        elif y2[i] is None:
-            apploximaterate = 0
-        else:
-            apploximaterate = y1[i]/y2[i]*100
-        apploximate_rate.append(apploximaterate)
-    x = list(range(1, nb_episodes + 1))
-    plt.plot(x, apploximate_rate, label='approximate rate')
-    # ラベルや凡例の追加
-    plt.xlabel('episode')
-    plt.ylabel('value')
-    # plt.title('二つのリストのプロット')
-    plt.legend() # 凡例を表示
-    # プロットの表示
-    plt.show()
+        # 計算時間の比較
+        y1 = episode_logger.objective_time # 厳密解の処理時間
+        y2 = episode_logger.apploximatetime # 近似解の処理時間
+        x = np.arange(len(y1)) # x軸の設定
+        valid_indices1 = [i for i, value in enumerate(y1) if value is not None]
+        valid_indices2 = [i for i, value in enumerate(y2) if value is not None]
+        # 有効なデータのみを抽出
+        valid_data1 = [y1[i] for i in valid_indices1]
+        valid_data2 = [y2[i] for i in valid_indices2]
+        valid_x1 = [x[i] for i in valid_indices1]
+        valid_x2 = [x[i] for i in valid_indices2]
+        # プロット
+        plt.plot(valid_x1, valid_data1, marker='o', linestyle='-', label='exactsolution time')
+        plt.plot(valid_x2, valid_data2, marker='o', linestyle='-', label='approximatesolution time')
+        # ラベルや凡例の追加
+        plt.xlabel('episode')
+        plt.ylabel('s')
+        # plt.title('二つのリストのプロット')
+        plt.legend() # 凡例を表示
 
-    # 計算時間の比較
-    y1 = episode_logger.objective_time # 厳密解の処理時間
-    y2 = episode_logger.apploximatetime # 近似解の処理時間
-    x = np.arange(len(y1)) # x軸の設定
-    valid_indices1 = [i for i, value in enumerate(y1) if value is not None]
-    valid_indices2 = [i for i, value in enumerate(y2) if value is not None]
-    # 有効なデータのみを抽出
-    valid_data1 = [y1[i] for i in valid_indices1]
-    valid_data2 = [y2[i] for i in valid_indices2]
-    valid_x1 = [x[i] for i in valid_indices1]
-    valid_x2 = [x[i] for i in valid_indices2]
-    # プロット
-    plt.plot(valid_x1, valid_data1, marker='o', linestyle='-', label='exactsolution time')
-    plt.plot(valid_x2, valid_data2, marker='o', linestyle='-', label='approximatesolution time')
-    # ラベルや凡例の追加
-    plt.xlabel('episode')
-    plt.ylabel('s')
-    # plt.title('二つのリストのプロット')
-    plt.legend() # 凡例を表示
-    # プロットの表示
-    plt.show()
+        # グラフをエピソードごとに保存
+        filename = f"episode_{kurikaeshi + 1}_{range_commodity_l}_{now.strftime('%Y-%m-%d_%H-%M-%S')}_time.png"
+        filepath = os.path.join(save_dir, filename)
+        plt.savefig(filepath)
+        plt.clf()
+
+    if (result_model == 'graph2'):
+        now = datetime.datetime.now()
+        # グラフ保存先ディレクトリ
+        save_dir = 'episode_graphs_simple/'
+        # ディレクトリが存在しない場合は作成
+        os.makedirs(save_dir, exist_ok=True)
+        
+        #近似率の算出
+        approximate_rate = []
+        approximate_rate_LR = []
+        y1 = episode_logger.objective_values # 厳密解
+        y2 = episode_logger.apploximatesolutions # LRksp
+        y3 = episode_logger.objective_values_ksp # 単純ksp
+
+        for i in range(nb_episodes):
+            if y1[i] is None:
+                approximaterate = approximaterate_LR = 110
+            elif y2[i] is None:
+                approximaterate_LR = 0
+            elif y3[i] is None:
+                approximaterate = 0
+            else:
+                approximaterate_LR = y1[i]/y2[i]*100
+                approximaterate = y1[i]/y3[i]*100
+            approximate_rate.append(approximaterate)
+            approximate_rate_LR.append(approximaterate_LR)
+        x = np.arange(len(y1)) # x軸の設定
+
+
+        valid_indices1 = [i for i, value in enumerate(approximate_rate) if value is not None]
+        valid_indices2 = [i for i, value in enumerate(approximate_rate_LR) if value is not None]
+        # 有効なデータのみを抽出
+        valid_data1 = [approximate_rate[i] for i in valid_indices1]
+        valid_data2 = [approximate_rate_LR[i] for i in valid_indices2]
+        valid_x1 = [x[i] for i in valid_indices1]
+        valid_x2 = [x[i] for i in valid_indices2]
+        # プロット
+        plt.plot(valid_x1, valid_data1, marker='o', linestyle='-', label='Simple ksp')
+        plt.plot(valid_x2, valid_data2, marker='o', linestyle='-', label='LP ksp')
+
+
+        # plt.plot(x, approximate_rate, label='Simple ksp')
+        # plt.plot(x, approximate_rate_LR, label='LR ksp')
+
+        # ラベルや凡例の追加
+        plt.xlabel('episode')
+        plt.ylabel('approximate rate[%]')
+        # plt.title('二つのリストのプロット')
+        plt.legend() # 凡例を表示
+        # グラフをエピソードごとに保存
+        filename = f"episode_{kurikaeshi + 1}_{range_commodity_l}_{now.strftime('%Y-%m-%d_%H-%M-%S')}_compare_rate.png"
+        filepath = os.path.join(save_dir, filename)
+        plt.savefig(filepath)
+        plt.clf()
+
+        # 計算時間の比較
+        y1 = episode_logger.objective_time_ksp # 単純kspの処理時間
+        y2 = episode_logger.apploximatetime # 近似解の処理時間
+        x = np.arange(len(y1)) # x軸の設定
+        valid_indices1 = [i for i, value in enumerate(y1) if value is not None]
+        valid_indices2 = [i for i, value in enumerate(y2) if value is not None]
+        # 有効なデータのみを抽出
+        valid_data1 = [y1[i] for i in valid_indices1]
+        valid_data2 = [y2[i] for i in valid_indices2]
+        valid_x1 = [x[i] for i in valid_indices1]
+        valid_x2 = [x[i] for i in valid_indices2]
+        # プロット
+        plt.plot(valid_x1, valid_data1, marker='o', linestyle='-', label='Simple ksp')
+        plt.plot(valid_x2, valid_data2, marker='o', linestyle='-', label='LP ksp')
+        # ラベルや凡例の追加
+        plt.xlabel('episode')
+        plt.ylabel('time[s]')
+        # plt.title('二つのリストのプロット')
+        plt.legend() # 凡例を表示
+        # グラフをエピソードごとに保存
+        filename = f"episode_{kurikaeshi + 1}_{range_commodity_l}_{now.strftime('%Y-%m-%d_%H-%M-%S')}_compare_time.png"
+        filepath = os.path.join(save_dir, filename)
+        plt.savefig(filepath)
+        plt.clf()
